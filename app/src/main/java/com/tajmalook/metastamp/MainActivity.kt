@@ -443,11 +443,29 @@ class MainActivity : AppCompatActivity() {
             main.post {
                 btnSave.isEnabled = true
                 btnSaveAll.isEnabled = true
-                rebuildThumbs()
-                bind()
+                closeSaved()
                 toast(if (err == null) "Saved $ok to Pictures/MetaStamp" else "Saved $ok. Problem: $err")
             }
         }
+    }
+
+    /** Removes saved photos; shows the photo chooser again when none are left. */
+    private fun closeSaved() {
+        val cur = item()
+        val firstSaved = items.indexOfFirst { it.saved }
+        items.removeAll { it.saved }
+        if (items.isEmpty()) {
+            current = -1
+            preview.setImageDrawable(null)
+            thumbs.removeAllViews()
+            editor.visibility = View.GONE
+            actions.visibility = View.GONE
+            empty.visibility = View.VISIBLE
+            findViewById<android.widget.ScrollView>(R.id.scroll).scrollTo(0, 0)
+            return
+        }
+        val keep = items.indexOf(cur)
+        select(if (keep >= 0) keep else firstSaved.coerceIn(0, items.size - 1))
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
