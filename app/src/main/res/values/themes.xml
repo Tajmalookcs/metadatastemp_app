@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.MetaStamp" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="android:colorBackground">@color/paper</item>
+        <item name="android:statusBarColor">@color/ink</item>
+        <item name="android:navigationBarColor">@color/paper</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

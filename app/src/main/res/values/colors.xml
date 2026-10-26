@@ -1,0 +1,10 @@
+<resources>
+    <color name="ink">#1C2321</color>
+    <color name="paper">#F4F5F2</color>
+    <color name="card">#FFFFFF</color>
+    <color name="muted">#5E6863</color>
+    <color name="accent">#2F6B4F</color>
+    <color name="signal">#F7D046</color>
+    <color name="warn">#B4501E</color>
+    <color name="line">#D9DDD8</color>
+</resources>
