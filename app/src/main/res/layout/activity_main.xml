@@ -216,7 +216,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="Crop photo" />
+                    android:text="Crop &amp; rotate" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/swMap"

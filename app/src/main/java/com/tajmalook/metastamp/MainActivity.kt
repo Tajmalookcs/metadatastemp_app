@@ -237,6 +237,7 @@ class MainActivity : AppCompatActivity() {
                 append(if (it.gpsFromExif) "Location from photo" else "No GPS in this photo, type the coordinates")
                 append(" · ")
                 append(if (it.dateFromExif) "date from photo" else "date from file, check it")
+                if (it.rotation != 0 || it.straighten != 0f) append(" · rotated")
                 if (it.crop != null) append(" · cropped")
             }
         }
@@ -256,7 +257,7 @@ class MainActivity : AppCompatActivity() {
         val it = item() ?: return
         val src = it.preview
         if (src == null) { preview.setImageDrawable(null); return }
-        preview.setImageBitmap(Stamp.render(MetaReader.applyCrop(src, it.crop), it, swMap.isChecked))
+        preview.setImageBitmap(Stamp.render(MetaReader.applyEdits(src, it), it, swMap.isChecked))
     }
 
     private fun openCrop() {
@@ -268,12 +269,69 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(0xFF111413.toInt())
         }
+        var rot = it.rotation
+        var tilt = it.straighten
+        var turned = MetaReader.rotateBy(src, rot)
         val cropView = CropView(this).apply {
-            bitmap = src
+            bitmap = MetaReader.straighten(turned, tilt)
             setCrop(it.crop)
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
         }
         root.addView(cropView)
+
+        // Rotate controls: 90° left / right and a fine straighten slider
+        val tiltLabel = android.widget.TextView(this).apply {
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 13f
+            minWidth = (92 * dp).toInt()
+        }
+        fun showTilt() { tiltLabel.text = String.format(Locale.US, "Straighten %+.1f°", tilt) }
+        showTilt()
+        val slider = com.google.android.material.slider.Slider(this).apply {
+            valueFrom = -45f; valueTo = 45f; stepSize = 0.5f
+            value = (Math.round(tilt * 2) / 2f).coerceIn(-45f, 45f)
+            labelBehavior = com.google.android.material.slider.LabelFormatter.LABEL_GONE
+            trackActiveTintList = android.content.res.ColorStateList.valueOf(0xFFF7D046.toInt())
+            thumbTintList = android.content.res.ColorStateList.valueOf(0xFFF7D046.toInt())
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tiltTask = Runnable { cropView.bitmap = MetaReader.straighten(turned, tilt) }
+        slider.addOnChangeListener { _, v, _ ->
+            tilt = v; showTilt()
+            main.removeCallbacks(tiltTask); main.postDelayed(tiltTask, 40)
+        }
+        fun turn(by: Int) {
+            rot = ((rot + by) % 360 + 360) % 360
+            turned = MetaReader.rotateBy(src, rot)
+            val c = android.graphics.RectF(cropView.crop)
+            val n = if (by > 0) android.graphics.RectF(1 - c.bottom, c.left, 1 - c.top, c.right)
+                    else android.graphics.RectF(c.top, 1 - c.right, c.bottom, 1 - c.left)
+            cropView.bitmap = MetaReader.straighten(turned, tilt)
+            cropView.aspect = null
+            cropView.setCrop(n)
+        }
+        fun iconBtn(label: String, f: () -> Unit) = MaterialButton(this).apply {
+            text = label
+            minWidth = 0; minimumWidth = 0
+            insetTop = 0; insetBottom = 0
+            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF2A302D.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, (40 * dp).toInt())
+                .apply { marginEnd = (6 * dp).toInt() }
+            setOnClickListener { f() }
+        }
+        val rotateRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding((12 * dp).toInt(), (6 * dp).toInt(), (12 * dp).toInt(), 0)
+        }
+        val tiltRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding((12 * dp).toInt(), 0, (12 * dp).toInt(), 0)
+            addView(tiltLabel)
+            addView(slider)
+        }
 
         val ratios = listOf<Pair<String, Float?>>(
             "Free" to null,
@@ -301,11 +359,19 @@ class MainActivity : AppCompatActivity() {
                     LinearLayout.LayoutParams.WRAP_CONTENT, (40 * dp).toInt()
                 ).apply { marginEnd = (6 * dp).toInt() }
             }
-            b.setOnClickListener { cropView.aspect = r; mark(b) }
+            b.setOnClickListener {
+                cropView.aspect = if (label == "Original") cropView.bitmap?.let { bm -> bm.width.toFloat() / bm.height } else r
+                mark(b)
+            }
             chips += b
             chipRow.addView(b)
         }
         mark(chips[0])
+        rotateRow.addView(iconBtn("↺ 90°") { turn(-90); mark(chips[0]) })
+        rotateRow.addView(iconBtn("↻ 90°") { turn(90); mark(chips[0]) })
+        rotateRow.addView(iconBtn("Level") { slider.value = 0f })
+        root.addView(rotateRow)
+        root.addView(tiltRow)
         root.addView(android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             addView(chipRow)
@@ -325,11 +391,17 @@ class MainActivity : AppCompatActivity() {
                 .apply { marginEnd = (8 * dp).toInt() }
             setOnClickListener { f() }
         }
-        btnRow.addView(action("Reset", false) { cropView.reset(); mark(chips[0]) })
+        btnRow.addView(action("Reset", false) {
+            rot = 0; turned = src; slider.value = 0f; tilt = 0f
+            cropView.bitmap = src
+            cropView.reset(); mark(chips[0])
+        })
         btnRow.addView(action("Cancel", false) { dialog.dismiss() })
         btnRow.addView(action("Apply", true) {
             val c = android.graphics.RectF(cropView.crop)
             it.crop = if (c.left <= 0.001f && c.top <= 0.001f && c.right >= 0.999f && c.bottom >= 0.999f) null else c
+            it.rotation = rot
+            it.straighten = tilt
             dialog.dismiss()
             bind()
         })

@@ -52,10 +52,40 @@ class PhotoItem(val uri: Uri) {
     var make: String? = null
     /** Normalized crop rect (0..1) on the upright image, or null for none. */
     var crop: android.graphics.RectF? = null
+    /** Quarter turns clockwise, in degrees: 0, 90, 180, 270. */
+    var rotation: Int = 0
+    /** Fine straighten angle in degrees, -45..45. */
+    var straighten: Float = 0f
     var model: String? = null
 }
 
 object MetaReader {
+
+    /** Rotation, straighten and crop, in that order. */
+    fun applyEdits(b: Bitmap, item: PhotoItem): Bitmap =
+        applyCrop(straighten(rotateBy(b, item.rotation), item.straighten), item.crop)
+
+    fun rotateBy(b: Bitmap, deg: Int): Bitmap {
+        if (deg % 360 == 0) return b
+        val m = Matrix().apply { postRotate(deg.toFloat()) }
+        return Bitmap.createBitmap(b, 0, 0, b.width, b.height, m, true)
+    }
+
+    /** Rotates by a small angle and zooms just enough to fill the frame (no empty corners). */
+    fun straighten(b: Bitmap, deg: Float): Bitmap {
+        if (Math.abs(deg) < 0.05f) return b
+        val w = b.width.toFloat(); val h = b.height.toFloat()
+        val r = Math.toRadians(Math.abs(deg).toDouble())
+        val cos = Math.cos(r).toFloat(); val sin = Math.sin(r).toFloat()
+        val k = maxOf(cos + (h / w) * sin, cos + (w / h) * sin)
+        val out = Bitmap.createBitmap(b.width, b.height, Bitmap.Config.ARGB_8888)
+        val c = Canvas(out)
+        c.translate(w / 2, h / 2)
+        c.rotate(deg)
+        c.scale(k, k)
+        c.drawBitmap(b, -w / 2, -h / 2, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+        return out
+    }
 
     fun applyCrop(b: Bitmap, crop: android.graphics.RectF?): Bitmap {
         if (crop == null) return b
@@ -302,7 +332,7 @@ object Saver {
     /** Renders full resolution, writes JPEG with metadata, adds to gallery. Returns saved name. */
     fun save(ctx: Context, item: PhotoItem, showMap: Boolean): String {
         val decoded = MetaReader.decode(ctx, item, 4096) ?: throw IllegalStateException("Couldn't open ${item.name}")
-        val full = MetaReader.applyCrop(decoded, item.crop)
+        val full = MetaReader.applyEdits(decoded, item)
         val stamped = Stamp.render(full, item, showMap)
         val base = item.name.substringBeforeLast('.')
         val outName = "${base}_stamped_${System.currentTimeMillis() % 100000}.jpg"
