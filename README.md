@@ -6,7 +6,7 @@ Android app that adds a GPS / date stamp to photos using their own metadata.
 - Looks up the address (with Plus Code) and a small OpenStreetMap thumbnail.
 - Draws the stamp along the bottom: map, address, `Lat … Long …`, and the date in a yellow-on-black box.
 - Crop each photo before stamping (free, original, 1:1, 4:3, 3:4, 16:9, 9:16).
-- Everything can be edited before saving. Saved photos go to **Pictures/MetaStamp** and keep their GPS and date metadata.
+- Everything can be edited before saving. Saved photos go to **Pictures/MetaStamp** with full metadata: the original camera details plus your edited GPS location, date and address (in the image description), so the gallery shows the right date and place.
 - Pick photos in the app, or share them to Meta Stamp from your gallery. Batch save is supported.
 
 ## Download

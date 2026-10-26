@@ -255,6 +255,68 @@ object MetaReader {
 
 object Saver {
 
+    /** Camera/shot tags carried over from the original photo. */
+    private val copyTags = listOf(
+        ExifInterface.TAG_MAKE, ExifInterface.TAG_MODEL, ExifInterface.TAG_LENS_MAKE,
+        ExifInterface.TAG_LENS_MODEL, ExifInterface.TAG_F_NUMBER, ExifInterface.TAG_EXPOSURE_TIME,
+        ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, ExifInterface.TAG_FOCAL_LENGTH,
+        ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, ExifInterface.TAG_FLASH,
+        ExifInterface.TAG_WHITE_BALANCE, ExifInterface.TAG_EXPOSURE_BIAS_VALUE,
+        ExifInterface.TAG_METERING_MODE, ExifInterface.TAG_EXPOSURE_PROGRAM,
+        ExifInterface.TAG_APERTURE_VALUE, ExifInterface.TAG_SHUTTER_SPEED_VALUE,
+        ExifInterface.TAG_BRIGHTNESS_VALUE, ExifInterface.TAG_DIGITAL_ZOOM_RATIO,
+        ExifInterface.TAG_SCENE_CAPTURE_TYPE, ExifInterface.TAG_ARTIST, ExifInterface.TAG_COPYRIGHT,
+        ExifInterface.TAG_OFFSET_TIME_ORIGINAL, ExifInterface.TAG_OFFSET_TIME
+    )
+    private val gpsExtraTags = listOf(
+        ExifInterface.TAG_GPS_ALTITUDE, ExifInterface.TAG_GPS_ALTITUDE_REF,
+        ExifInterface.TAG_GPS_IMG_DIRECTION, ExifInterface.TAG_GPS_IMG_DIRECTION_REF,
+        ExifInterface.TAG_GPS_SPEED, ExifInterface.TAG_GPS_SPEED_REF
+    )
+
+    /**
+     * Writes the new metadata into the saved JPEG: original camera details,
+     * plus the (possibly edited) date, GPS, address and new dimensions.
+     */
+    private fun writeMetadata(ctx: Context, item: PhotoItem, file: File) {
+        val src: ExifInterface? = try {
+            ctx.contentResolver.openInputStream(item.readUri)?.use { ExifInterface(it) }
+        } catch (e: Exception) {
+            try { ctx.contentResolver.openInputStream(item.uri)?.use { ExifInterface(it) } } catch (e2: Exception) { null }
+        }
+        try {
+            val ex = ExifInterface(file.absolutePath)
+            src?.let { o -> copyTags.forEach { t -> o.getAttribute(t)?.let { v -> ex.setAttribute(t, v) } } }
+
+            val ds = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(item.date)
+            ex.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, ds)
+            ex.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, ds)
+            ex.setAttribute(ExifInterface.TAG_DATETIME, ds)
+
+            val la = item.lat
+            val ln = item.lng
+            if (la != null && ln != null) {
+                ex.setLatLong(la, ln)
+                // Keep altitude/direction only if the location wasn't changed.
+                val orig = src?.latLong
+                if (orig != null && Math.abs(orig[0] - la) < 1e-6 && Math.abs(orig[1] - ln) < 1e-6) {
+                    gpsExtraTags.forEach { t -> src.getAttribute(t)?.let { v -> ex.setAttribute(t, v) } }
+                }
+            }
+            item.address?.takeIf { it.isNotBlank() }?.let {
+                ex.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, it)
+                ex.setAttribute(ExifInterface.TAG_USER_COMMENT, it)
+            }
+            ex.setAttribute(ExifInterface.TAG_SOFTWARE, "Meta Stamp")
+            ex.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
+            val dims = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, dims)
+            ex.setAttribute(ExifInterface.TAG_PIXEL_X_DIMENSION, dims.outWidth.toString())
+            ex.setAttribute(ExifInterface.TAG_PIXEL_Y_DIMENSION, dims.outHeight.toString())
+            ex.saveAttributes()
+        } catch (_: Exception) {}
+    }
+
     /** Renders full resolution, writes JPEG with metadata, adds to gallery. Returns saved name. */
     fun save(ctx: Context, item: PhotoItem, showMap: Boolean): String {
         val decoded = MetaReader.decode(ctx, item, 4096) ?: throw IllegalStateException("Couldn't open ${item.name}")
@@ -269,17 +331,7 @@ object Saver {
         if (full !== decoded) full.recycle()
         decoded.recycle()
 
-        try {
-            val ex = ExifInterface(tmp.absolutePath)
-            val ds = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(item.date)
-            ex.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, ds)
-            ex.setAttribute(ExifInterface.TAG_DATETIME, ds)
-            item.make?.let { ex.setAttribute(ExifInterface.TAG_MAKE, it) }
-            item.model?.let { ex.setAttribute(ExifInterface.TAG_MODEL, it) }
-            if (item.lat != null && item.lng != null) ex.setLatLong(item.lat!!, item.lng!!)
-            ex.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
-            ex.saveAttributes()
-        } catch (_: Exception) {}
+        writeMetadata(ctx, item, tmp)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
@@ -287,6 +339,8 @@ object Saver {
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                 put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/MetaStamp")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
+                put(MediaStore.Images.Media.DATE_TAKEN, item.date.time)
+                item.address?.let { put(MediaStore.Images.Media.DESCRIPTION, it) }
             }
             val resolver = ctx.contentResolver
             val dest = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
