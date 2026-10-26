@@ -300,7 +300,7 @@ object Saver {
                 // Keep altitude/direction only if the location wasn't changed.
                 val orig = src?.latLong
                 if (orig != null && Math.abs(orig[0] - la) < 1e-6 && Math.abs(orig[1] - ln) < 1e-6) {
-                    gpsExtraTags.forEach { t -> src.getAttribute(t)?.let { v -> ex.setAttribute(t, v) } }
+                    gpsExtraTags.forEach { t -> src?.getAttribute(t)?.let { v -> ex.setAttribute(t, v) } }
                 }
             }
             item.address?.takeIf { it.isNotBlank() }?.let {
