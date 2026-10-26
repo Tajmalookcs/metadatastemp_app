@@ -210,6 +210,14 @@
                         android:text="Find address" />
                 </LinearLayout>
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnCrop"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Crop photo" />
+
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/swMap"
                     android:layout_width="match_parent"

@@ -100,6 +100,7 @@ class MainActivity : AppCompatActivity() {
         lng.addTextChangedListener(coordWatcher)
         swMap.setOnCheckedChangeListener { _, _ -> schedulePreview() }
         btnDate.setOnClickListener { pickDate() }
+        findViewById<View>(R.id.btnCrop).setOnClickListener { openCrop() }
         btnLocate.setOnClickListener { item()?.let { lookup(it, force = true) } }
         btnSave.setOnClickListener { item()?.let { saveItems(listOf(it)) } }
         btnSaveAll.setOnClickListener { saveItems(items.filter { it.loaded }) }
@@ -236,6 +237,7 @@ class MainActivity : AppCompatActivity() {
                 append(if (it.gpsFromExif) "Location from photo" else "No GPS in this photo, type the coordinates")
                 append(" · ")
                 append(if (it.dateFromExif) "date from photo" else "date from file, check it")
+                if (it.crop != null) append(" · cropped")
             }
         }
         status.setTextColor(ContextCompat.getColor(this,
@@ -254,7 +256,86 @@ class MainActivity : AppCompatActivity() {
         val it = item() ?: return
         val src = it.preview
         if (src == null) { preview.setImageDrawable(null); return }
-        preview.setImageBitmap(Stamp.render(src, it, swMap.isChecked))
+        preview.setImageBitmap(Stamp.render(MetaReader.applyCrop(src, it.crop), it, swMap.isChecked))
+    }
+
+    private fun openCrop() {
+        val it = item() ?: return
+        val src = it.preview ?: return
+        val dp = resources.displayMetrics.density
+        val dialog = android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF111413.toInt())
+        }
+        val cropView = CropView(this).apply {
+            bitmap = src
+            setCrop(it.crop)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        root.addView(cropView)
+
+        val ratios = listOf<Pair<String, Float?>>(
+            "Free" to null,
+            "Original" to src.width.toFloat() / src.height,
+            "1:1" to 1f, "4:3" to 4f / 3f, "3:4" to 3f / 4f,
+            "16:9" to 16f / 9f, "9:16" to 9f / 16f
+        )
+        val chipRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), 0)
+        }
+        val chips = mutableListOf<MaterialButton>()
+        fun mark(sel: MaterialButton) = chips.forEach { c ->
+            c.setTextColor(if (c === sel) 0xFF111413.toInt() else 0xFFFFFFFF.toInt())
+            c.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                if (c === sel) 0xFFF7D046.toInt() else 0xFF2A302D.toInt())
+        }
+        ratios.forEach { (label, r) ->
+            val b = MaterialButton(this).apply {
+                text = label
+                minWidth = 0; minimumWidth = 0
+                insetTop = 0; insetBottom = 0
+                setPadding((14 * dp).toInt(), 0, (14 * dp).toInt(), 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, (40 * dp).toInt()
+                ).apply { marginEnd = (6 * dp).toInt() }
+            }
+            b.setOnClickListener { cropView.aspect = r; mark(b) }
+            chips += b
+            chipRow.addView(b)
+        }
+        mark(chips[0])
+        root.addView(android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(chipRow)
+        })
+
+        val btnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding((12 * dp).toInt(), (10 * dp).toInt(), (12 * dp).toInt(), (16 * dp).toInt())
+        }
+        fun action(label: String, primary: Boolean, f: () -> Unit) = MaterialButton(this).apply {
+            text = label
+            if (!primary) {
+                backgroundTintList = android.content.res.ColorStateList.valueOf(0xFF2A302D.toInt())
+                setTextColor(0xFFFFFFFF.toInt())
+            }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { marginEnd = (8 * dp).toInt() }
+            setOnClickListener { f() }
+        }
+        btnRow.addView(action("Reset", false) { cropView.reset(); mark(chips[0]) })
+        btnRow.addView(action("Cancel", false) { dialog.dismiss() })
+        btnRow.addView(action("Apply", true) {
+            val c = android.graphics.RectF(cropView.crop)
+            it.crop = if (c.left <= 0.001f && c.top <= 0.001f && c.right >= 0.999f && c.bottom >= 0.999f) null else c
+            dialog.dismiss()
+            bind()
+        })
+        root.addView(btnRow)
+        dialog.setContentView(root)
+        dialog.show()
     }
 
     private fun pickDate() {

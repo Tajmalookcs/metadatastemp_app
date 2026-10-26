@@ -50,10 +50,22 @@ class PhotoItem(val uri: Uri) {
     var loaded = false
     var saved = false
     var make: String? = null
+    /** Normalized crop rect (0..1) on the upright image, or null for none. */
+    var crop: android.graphics.RectF? = null
     var model: String? = null
 }
 
 object MetaReader {
+
+    fun applyCrop(b: Bitmap, crop: android.graphics.RectF?): Bitmap {
+        if (crop == null) return b
+        val l = (crop.left * b.width).toInt().coerceIn(0, b.width - 1)
+        val t = (crop.top * b.height).toInt().coerceIn(0, b.height - 1)
+        val r = (crop.right * b.width).toInt().coerceIn(l + 1, b.width)
+        val bt = (crop.bottom * b.height).toInt().coerceIn(t + 1, b.height)
+        if (l == 0 && t == 0 && r == b.width && bt == b.height) return b
+        return Bitmap.createBitmap(b, l, t, r - l, bt - t)
+    }
 
     private val exifDate = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US)
 
@@ -245,7 +257,8 @@ object Saver {
 
     /** Renders full resolution, writes JPEG with metadata, adds to gallery. Returns saved name. */
     fun save(ctx: Context, item: PhotoItem, showMap: Boolean): String {
-        val full = MetaReader.decode(ctx, item, 4096) ?: throw IllegalStateException("Couldn't open ${item.name}")
+        val decoded = MetaReader.decode(ctx, item, 4096) ?: throw IllegalStateException("Couldn't open ${item.name}")
+        val full = MetaReader.applyCrop(decoded, item.crop)
         val stamped = Stamp.render(full, item, showMap)
         val base = item.name.substringBeforeLast('.')
         val outName = "${base}_stamped_${System.currentTimeMillis() % 100000}.jpg"
@@ -253,7 +266,8 @@ object Saver {
         val tmp = File(ctx.cacheDir, outName)
         FileOutputStream(tmp).use { stamped.compress(Bitmap.CompressFormat.JPEG, 95, it) }
         stamped.recycle()
-        if (full != stamped) full.recycle()
+        if (full !== decoded) full.recycle()
+        decoded.recycle()
 
         try {
             val ex = ExifInterface(tmp.absolutePath)
