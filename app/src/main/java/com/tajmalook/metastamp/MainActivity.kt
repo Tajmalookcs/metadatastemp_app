@@ -37,6 +37,9 @@ class MainActivity : AppCompatActivity() {
     private var binding = false
     private var pendingUris: List<Uri>? = null
     private var permForSave = false
+    private var cameraFile: java.io.File? = null
+    private lateinit var tracker: LocationTracker
+    private var waitDialog: androidx.appcompat.app.AlertDialog? = null
 
     private lateinit var empty: View
     private lateinit var editor: View
@@ -64,9 +67,22 @@ class MainActivity : AppCompatActivity() {
         if (p != null) addUris(p, askPerms = false) else picker.launch(arrayOf("image/*"))
     }
 
+    private val takePicture = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        onCaptured(ok)
+    }
+
+    private val locPermLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        launchCamera()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        tracker = LocationTracker(this)
+        savedInstanceState?.getString("cameraFile")?.let { cameraFile = java.io.File(it) }
+        io.execute { CameraHelper.cleanup(this) }
+        findViewById<View>(R.id.btnCamera).setOnClickListener { openCamera() }
+        findViewById<View>(R.id.btnCameraBig).setOnClickListener { openCamera() }
 
         empty = findViewById(R.id.empty)
         editor = findViewById(R.id.editor)
@@ -108,6 +124,109 @@ class MainActivity : AppCompatActivity() {
         handleShare(intent)
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        cameraFile?.let { outState.putString("cameraFile", it.absolutePath) }
+    }
+
+    override fun onDestroy() {
+        tracker.stop()
+        super.onDestroy()
+    }
+
+    // ---- Camera ----
+
+    private fun hasLocationPerm() = listOf(
+        Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION
+    ).any { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
+
+    private fun openCamera() {
+        if (!hasLocationPerm()) {
+            locPermLauncher.launch(arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            return
+        }
+        launchCamera()
+    }
+
+    /** Called after the location permission answer (granted or not). */
+    private fun launchCamera() {
+        if (!hasLocationPerm()) {
+            toast("No location permission. The photo will have no GPS unless your camera adds it.")
+            startCapture()
+            return
+        }
+        if (!tracker.isLocationOn()) {
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("Location is off")
+                .setMessage("Turn on location so the photo gets GPS coordinates and an address.")
+                .setPositiveButton("Turn on") { _, _ ->
+                    try { startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
+                    catch (_: Exception) {}
+                }
+                .setNegativeButton("Take without GPS") { _, _ -> startCapture() }
+                .show()
+            return
+        }
+        tracker.start()
+        startCapture()
+    }
+
+    private fun startCapture() {
+        val file = CameraHelper.newFile(this)
+        val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", file)
+        cameraFile = file
+        try {
+            takePicture.launch(uri)
+        } catch (e: android.content.ActivityNotFoundException) {
+            cameraFile = null
+            tracker.stop()
+            toast("No camera app found on this phone")
+        }
+    }
+
+    private fun onCaptured(ok: Boolean) {
+        val file = cameraFile
+        cameraFile = null
+        if (!ok || file == null || !file.exists() || file.length() == 0L) {
+            file?.delete()
+            tracker.stop()
+            return
+        }
+        val taken = java.util.Date()
+        if (!hasLocationPerm()) { finishCapture(file, taken, null); return }
+        tracker.start()
+        var done = false
+        fun finish() {
+            if (done) return
+            done = true
+            waitDialog?.dismiss(); waitDialog = null
+            finishCapture(file, taken, tracker.best)
+        }
+        val b = tracker.best
+        if (b != null && b.accuracy <= 50f && System.currentTimeMillis() - b.time < 60_000) { finish(); return }
+        waitDialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Getting your location…")
+            .setMessage("Waiting for GPS. Standing outside helps.")
+            .setCancelable(false)
+            .setNegativeButton("Skip") { _, _ -> finish() }
+            .show()
+        tracker.whenReady { finish() }
+        main.postDelayed({ finish() }, 15_000)
+    }
+
+    private fun finishCapture(file: java.io.File, taken: java.util.Date, loc: android.location.Location?) {
+        tracker.stop()
+        io.execute {
+            CameraHelper.writeCaptureMetadata(file, taken, loc)
+            main.post {
+                val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", file)
+                addItems(listOf(PhotoItem(uri).apply { cameraFile = file }))
+                if (loc == null) toast("No GPS fix. Type the coordinates or tap Find address later.")
+            }
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleShare(intent)
@@ -147,8 +266,12 @@ class MainActivity : AppCompatActivity() {
             val need = neededPerms()
             if (need.isNotEmpty()) { pendingUris = uris; permLauncher.launch(need); return }
         }
+        addItems(uris.map { PhotoItem(it) })
+    }
+
+    private fun addItems(newItems: List<PhotoItem>) {
         val start = items.size
-        uris.forEach { items.add(PhotoItem(it)) }
+        items.addAll(newItems)
         empty.visibility = View.GONE
         editor.visibility = View.VISIBLE
         actions.visibility = View.VISIBLE
@@ -453,6 +576,7 @@ class MainActivity : AppCompatActivity() {
     private fun closeSaved() {
         val cur = item()
         val firstSaved = items.indexOfFirst { it.saved }
+        items.filter { it.saved }.forEach { it.cameraFile?.delete() }
         items.removeAll { it.saved }
         if (items.isEmpty()) {
             current = -1

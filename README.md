@@ -2,6 +2,7 @@
 
 Android app that adds a GPS / date stamp to photos using their own metadata.
 
+- Take photos with your phone's camera from inside the app (📷). The app gets your GPS position and writes the location, time and phone model into the photo.
 - Reads latitude, longitude and the original capture date from each photo's EXIF.
 - Looks up the address (with Plus Code) and a small OpenStreetMap thumbnail.
 - Draws the stamp along the bottom: map, address, `Lat … Long …`, and the date in a yellow-on-black box.

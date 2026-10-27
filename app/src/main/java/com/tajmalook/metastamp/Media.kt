@@ -50,6 +50,8 @@ class PhotoItem(val uri: Uri) {
     var loaded = false
     var saved = false
     var make: String? = null
+    /** Temporary file when the photo came from the camera. */
+    var cameraFile: java.io.File? = null
     /** Normalized crop rect (0..1) on the upright image, or null for none. */
     var crop: android.graphics.RectF? = null
     /** Quarter turns clockwise, in degrees: 0, 90, 180, 270. */
@@ -106,7 +108,9 @@ object MetaReader {
             != PackageManager.PERMISSION_GRANTED) return null
         return try {
             val media = if (uri.authority == MediaStore.AUTHORITY) uri
-            else MediaStore.getMediaUri(ctx, uri)
+            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                uri.authority == "com.android.providers.media.documents") MediaStore.getMediaUri(ctx, uri)
+            else null
             media?.let { MediaStore.setRequireOriginal(it) }
         } catch (e: Exception) {
             null

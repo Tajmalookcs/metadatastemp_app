@@ -41,6 +41,17 @@
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCamera"
+            style="@style/Widget.Material3.Button.IconButton.Filled"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
+            android:contentDescription="Take photo"
+            app:backgroundTint="@color/signal"
+            app:icon="@drawable/ic_camera"
+            app:iconTint="@color/ink" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnAdd"
             style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="wrap_content"
@@ -84,16 +95,31 @@
                     android:layout_marginTop="8dp"
                     android:gravity="center"
                     android:maxWidth="320dp"
-                    android:text="Pick photos taken with location on. The app reads their GPS and date, finds the address, and adds the stamp."
+                    android:text="Take a photo or pick ones taken with location on. The app reads the GPS and date, finds the address, and adds the stamp."
                     android:textColor="@color/muted"
                     android:textSize="14sp" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnAddBig"
+                <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="20dp"
-                    android:text="Choose photos" />
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnCameraBig"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:text="Take photo"
+                        app:icon="@drawable/ic_camera" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnAddBig"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Choose photos" />
+                </LinearLayout>
             </LinearLayout>
 
             <LinearLayout
