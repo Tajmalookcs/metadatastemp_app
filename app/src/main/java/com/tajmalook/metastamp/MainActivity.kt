@@ -117,6 +117,7 @@ class MainActivity : AppCompatActivity() {
         swMap.setOnCheckedChangeListener { _, _ -> schedulePreview() }
         btnDate.setOnClickListener { pickDate() }
         findViewById<View>(R.id.btnCrop).setOnClickListener { openCrop() }
+        findViewById<View>(R.id.btnDuplicate).setOnClickListener { duplicateCurrent() }
         btnLocate.setOnClickListener { item()?.let { lookup(it, force = true) } }
         btnSave.setOnClickListener { item()?.let { saveItems(listOf(it)) } }
         btnSaveAll.setOnClickListener { saveItems(items.filter { it.loaded }) }
@@ -310,7 +311,10 @@ class MainActivity : AppCompatActivity() {
                     item.addressEdited = false
                 }
                 if (tile != null) item.mapTile = tile
-                if (item === item()) bind()
+                // Copies made before the lookup finished get the same address and map.
+                items.filter { s -> s !== item && s.uri == item.uri && !s.addressEdited && s.lat == la && s.lng == ln }
+                    .forEach { s -> s.address = item.address; if (tile != null) s.mapTile = tile }
+                if (item()?.uri == item.uri) bind()
                 if (force && addr == null) toast("Couldn't get the address. Check internet, or type it in.")
             }
         }
@@ -326,21 +330,93 @@ class MainActivity : AppCompatActivity() {
 
     private fun rebuildThumbs() {
         thumbs.removeAllViews()
-        val size = (64 * resources.displayMetrics.density).toInt()
-        val m = (6 * resources.displayMetrics.density).toInt()
+        val dp = resources.displayMetrics.density
+        val size = (64 * dp).toInt()
+        val m = (6 * dp).toInt()
         items.forEachIndexed { i, it ->
-            val iv = ImageView(this).apply {
+            val frame = android.widget.FrameLayout(this).apply {
                 layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = m }
+            }
+            val iv = ImageView(this).apply {
+                layoutParams = android.widget.FrameLayout.LayoutParams(size, size)
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 setPadding(4, 4, 4, 4)
                 setBackgroundResource(if (i == current) R.drawable.thumb_selected else R.drawable.thumb_normal)
                 it.thumb?.let { b -> setImageBitmap(b) }
                 alpha = if (it.saved) 0.55f else 1f
-                contentDescription = it.name
-                setOnClickListener { select(i) }
+                contentDescription = if (it.copyNo > 0) "${it.name}, copy ${it.copyNo}" else it.name
             }
-            thumbs.addView(iv)
+            frame.addView(iv)
+            if (it.copyNo > 0) {
+                frame.addView(android.widget.TextView(this).apply {
+                    text = it.copyNo.toString()
+                    textSize = 11f
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.ink))
+                    gravity = android.view.Gravity.CENTER
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(ContextCompat.getColor(this@MainActivity, R.color.signal))
+                    }
+                    val b = (20 * dp).toInt()
+                    layoutParams = android.widget.FrameLayout.LayoutParams(b, b,
+                        android.view.Gravity.TOP or android.view.Gravity.END).apply {
+                        topMargin = (3 * dp).toInt(); rightMargin = (3 * dp).toInt()
+                    }
+                })
+            }
+            frame.setOnClickListener { select(i) }
+            val target = it
+            frame.setOnLongClickListener { confirmRemove(target); true }
+            thumbs.addView(frame)
         }
+    }
+
+    private fun confirmRemove(item: PhotoItem) {
+        val label = if (item.copyNo > 0) "copy ${item.copyNo}" else "this photo"
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Remove $label?")
+            .setMessage("It's only removed from this list. Nothing is deleted from your gallery.")
+            .setPositiveButton("Remove") { _, _ -> removeItem(item) }
+            .setNegativeButton("Keep", null)
+            .show()
+    }
+
+    private fun removeItem(item: PhotoItem) {
+        val idx = items.indexOf(item)
+        if (idx < 0) return
+        val cur = item()
+        items.removeAt(idx)
+        item.cameraFile?.let { f -> if (items.none { it.cameraFile == f }) f.delete() }
+        if (items.isEmpty()) { showStart(); return }
+        val keep = items.indexOf(cur)
+        select(if (keep >= 0) keep else idx.coerceAtMost(items.size - 1))
+    }
+
+    /** Thumbnail that shows the item's own crop/rotation. */
+    private fun refreshThumb(item: PhotoItem) {
+        val p = item.preview ?: return
+        item.thumb = MetaReader.thumbOf(MetaReader.applyEdits(p, item))
+    }
+
+    /** Adds a copy right after the last copy of the same photo. Returns it. */
+    private fun addCopy(of: PhotoItem, edit: (PhotoItem) -> Unit = {}): PhotoItem {
+        val siblings = items.filter { it.uri == of.uri }
+        val no = (siblings.maxOfOrNull { it.copyNo } ?: 0) + 1
+        val copy = of.duplicate(no)
+        edit(copy)
+        refreshThumb(copy)
+        val pos = items.indexOf(siblings.last()) + 1
+        items.add(pos, copy)
+        return copy
+    }
+
+    private fun duplicateCurrent() {
+        val it = item() ?: return
+        if (!it.loaded) { toast("Wait until the photo has loaded"); return }
+        val copy = addCopy(it)
+        select(items.indexOf(copy))
+        toast("Copy ${copy.copyNo} added")
     }
 
     private fun bind() {
@@ -362,6 +438,7 @@ class MainActivity : AppCompatActivity() {
                 append(if (it.dateFromExif) "date from photo" else "date from file, check it")
                 if (it.rotation != 0 || it.straighten != 0f) append(" · rotated")
                 if (it.crop != null) append(" · cropped")
+                if (it.copyNo > 0) append(" · copy ${it.copyNo}")
             }
         }
         status.setTextColor(ContextCompat.getColor(this,
@@ -525,9 +602,35 @@ class MainActivity : AppCompatActivity() {
             it.crop = if (c.left <= 0.001f && c.top <= 0.001f && c.right >= 0.999f && c.bottom >= 0.999f) null else c
             it.rotation = rot
             it.straighten = tilt
+            refreshThumb(it)
+            rebuildThumbs()
             dialog.dismiss()
             bind()
         })
+        val addCopyBtn = MaterialButton(this).apply {
+            text = "Add as copy"
+            setIconResource(R.drawable.ic_copy)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(0xFFF7D046.toInt())
+            setTextColor(0xFF111413.toInt())
+            iconTint = android.content.res.ColorStateList.valueOf(0xFF111413.toInt())
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = (12 * dp).toInt(); rightMargin = (12 * dp).toInt(); topMargin = (8 * dp).toInt()
+            }
+            setOnClickListener { _ ->
+                val c = android.graphics.RectF(cropView.crop)
+                val full = c.left <= 0.001f && c.top <= 0.001f && c.right >= 0.999f && c.bottom >= 0.999f
+                val copy = addCopy(it) { cp ->
+                    cp.crop = if (full) null else c
+                    cp.rotation = rot
+                    cp.straighten = tilt
+                }
+                current = items.indexOf(it)
+                rebuildThumbs()
+                toast("Copy ${copy.copyNo} added. Move the frame to the next object.")
+            }
+        }
+        root.addView(addCopyBtn)
         root.addView(btnRow)
         dialog.setContentView(root)
         dialog.show()
@@ -576,20 +679,22 @@ class MainActivity : AppCompatActivity() {
     private fun closeSaved() {
         val cur = item()
         val firstSaved = items.indexOfFirst { it.saved }
-        items.filter { it.saved }.forEach { it.cameraFile?.delete() }
+        val savedFiles = items.filter { it.saved }.mapNotNull { it.cameraFile }.toSet()
         items.removeAll { it.saved }
-        if (items.isEmpty()) {
-            current = -1
-            preview.setImageDrawable(null)
-            thumbs.removeAllViews()
-            editor.visibility = View.GONE
-            actions.visibility = View.GONE
-            empty.visibility = View.VISIBLE
-            findViewById<android.widget.ScrollView>(R.id.scroll).scrollTo(0, 0)
-            return
-        }
+        savedFiles.forEach { f -> if (items.none { it.cameraFile == f }) f.delete() }
+        if (items.isEmpty()) { showStart(); return }
         val keep = items.indexOf(cur)
         select(if (keep >= 0) keep else firstSaved.coerceIn(0, items.size - 1))
+    }
+
+    private fun showStart() {
+        current = -1
+        preview.setImageDrawable(null)
+        thumbs.removeAllViews()
+        editor.visibility = View.GONE
+        actions.visibility = View.GONE
+        empty.visibility = View.VISIBLE
+        findViewById<android.widget.ScrollView>(R.id.scroll).scrollTo(0, 0)
     }
 
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()

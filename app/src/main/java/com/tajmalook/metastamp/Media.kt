@@ -52,6 +52,23 @@ class PhotoItem(val uri: Uri) {
     var make: String? = null
     /** Temporary file when the photo came from the camera. */
     var cameraFile: java.io.File? = null
+    /** 0 for the original, 1, 2, 3… for copies of the same photo. */
+    var copyNo: Int = 0
+
+    /** A copy that shares the photo and metadata but has its own edits. */
+    fun duplicate(no: Int): PhotoItem = PhotoItem(uri).also { c ->
+        c.name = name; c.readUri = readUri
+        c.lat = lat; c.lng = lng; c.gpsFromExif = gpsFromExif
+        c.date = date; c.dateFromExif = dateFromExif
+        c.orientation = orientation
+        c.address = address; c.addressEdited = addressEdited
+        c.mapTile = mapTile; c.preview = preview; c.thumb = thumb
+        c.loaded = loaded; c.make = make; c.model = model
+        c.crop = crop?.let { android.graphics.RectF(it) }
+        c.rotation = rotation; c.straighten = straighten
+        c.cameraFile = cameraFile
+        c.copyNo = no
+    }
     /** Normalized crop rect (0..1) on the upright image, or null for none. */
     var crop: android.graphics.RectF? = null
     /** Quarter turns clockwise, in degrees: 0, 90, 180, 270. */
@@ -160,7 +177,7 @@ object MetaReader {
         item.loaded = true
     }
 
-    private fun thumbOf(b: Bitmap): Bitmap {
+    fun thumbOf(b: Bitmap): Bitmap {
         val s = 160
         val side = minOf(b.width, b.height)
         val out = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
@@ -339,7 +356,8 @@ object Saver {
         val full = MetaReader.applyEdits(decoded, item)
         val stamped = Stamp.render(full, item, showMap)
         val base = item.name.substringBeforeLast('.')
-        val outName = "${base}_stamped_${System.currentTimeMillis() % 100000}.jpg"
+        val tag = if (item.copyNo > 0) "_copy${item.copyNo}" else ""
+        val outName = "${base}${tag}_stamped_${System.currentTimeMillis() % 100000}.jpg"
 
         val tmp = File(ctx.cacheDir, outName)
         FileOutputStream(tmp).use { stamped.compress(Bitmap.CompressFormat.JPEG, 95, it) }
