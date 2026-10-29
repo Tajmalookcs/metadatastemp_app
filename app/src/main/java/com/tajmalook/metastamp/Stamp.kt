@@ -24,6 +24,16 @@ object Stamp {
     fun formatDate(d: Date): String =
         dateFmt.format(d).replace("AM", "am").replace("PM", "pm")
 
+    private val stampDateFmt = SimpleDateFormat("EEEE, dd/MM/yyyy hh:mm a", Locale.ENGLISH)
+
+    /** "Wednesday, 28/10/2026 04:11 PM GMT +05:00" */
+    fun formatStampDate(d: Date): String {
+        val off = java.util.TimeZone.getDefault().getOffset(d.time) / 60000
+        val sign = if (off < 0) "-" else "+"
+        val a = kotlin.math.abs(off)
+        return stampDateFmt.format(d) + String.format(Locale.US, " GMT %s%02d:%02d", sign, a / 60, a % 60)
+    }
+
     fun formatLatLng(lat: Double, lng: Double): String =
         String.format(Locale.US, "Lat %.6f°  Long %.6f°", lat, lng)
 
@@ -47,7 +57,7 @@ object Stamp {
             ?: ""
         val latLine = if (item.lat != null && item.lng != null)
             formatLatLng(item.lat!!, item.lng!!) else ""
-        val dateLine = formatDate(item.date)
+        val dateLine = formatStampDate(item.date)
 
         val addrPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
@@ -74,17 +84,19 @@ object Stamp {
             textSize = 30f * u
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             textAlign = Paint.Align.CENTER
+            setShadowLayer(3f * u, 0f, 1.5f * u, 0xCC000000.toInt())
+        }
+        // Shrink the date to fit on one line if needed.
+        while (datePaint.measureText(dateLine) > textWidth && datePaint.textSize > 12f * u) {
+            datePaint.textSize -= u
         }
 
         val latH = if (latLine.isEmpty()) 0f else latPaint.fontSpacing
-        val dateTextW = datePaint.measureText(dateLine)
-        val boxPadH = 16f * u
-        val boxPadV = 9f * u
         val dateFm = datePaint.fontMetrics
-        val dateBoxH = (dateFm.descent - dateFm.ascent) + boxPadV * 2
+        val dateH = dateFm.descent - dateFm.ascent
         val spacing1 = if (address.isEmpty()) 0f else 10f * u
         val spacing2 = 10f * u
-        val contentH = addrLayout.height + spacing1 + latH + spacing2 + dateBoxH
+        val contentH = addrLayout.height + spacing1 + latH + spacing2 + dateH
 
         val bandH = max(mapSize, contentH) + pad * 2
         val bandTop = h - bandH
@@ -135,9 +147,7 @@ object Stamp {
             y += latH
         }
         y += spacing2
-        val box = RectF(cx - dateTextW / 2f - boxPadH, y, cx + dateTextW / 2f + boxPadH, y + dateBoxH)
-        c.drawRoundRect(box, 9f * u, 9f * u, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xF2000000.toInt() })
-        c.drawText(dateLine, cx, y + boxPadV - dateFm.ascent, datePaint)
+        c.drawText(dateLine, cx, y - dateFm.ascent, datePaint)
 
         return out
     }
