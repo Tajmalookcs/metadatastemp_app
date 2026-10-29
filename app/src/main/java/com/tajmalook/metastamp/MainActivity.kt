@@ -55,6 +55,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnSave: MaterialButton
     private lateinit var btnSaveAll: MaterialButton
     private lateinit var swMap: MaterialSwitch
+    private lateinit var swStamp: MaterialSwitch
+    private val prefs by lazy { getSharedPreferences("settings", MODE_PRIVATE) }
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) addUris(uris)
@@ -98,6 +100,7 @@ class MainActivity : AppCompatActivity() {
         btnSave = findViewById(R.id.btnSave)
         btnSaveAll = findViewById(R.id.btnSaveAll)
         swMap = findViewById(R.id.swMap)
+        swStamp = findViewById(R.id.swStamp)
 
         findViewById<View>(R.id.btnAdd).setOnClickListener { choose() }
         findViewById<View>(R.id.btnAddBig).setOnClickListener { choose() }
@@ -115,6 +118,13 @@ class MainActivity : AppCompatActivity() {
         lat.addTextChangedListener(coordWatcher)
         lng.addTextChangedListener(coordWatcher)
         swMap.setOnCheckedChangeListener { _, _ -> schedulePreview() }
+        swStamp.setOnCheckedChangeListener { _, on ->
+            if (binding) return@setOnCheckedChangeListener
+            item()?.stamp = on
+            try { prefs.edit().putBoolean("stamp", on).apply() } catch (_: Exception) {}
+            swMap.visibility = if (on) View.VISIBLE else View.GONE
+            bind()
+        }
         btnDate.setOnClickListener { pickDate() }
         findViewById<View>(R.id.btnCrop).setOnClickListener { openCrop() }
         findViewById<View>(R.id.btnDuplicate).setOnClickListener { duplicateCurrent() }
@@ -272,6 +282,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun addItems(newItems: List<PhotoItem>) {
         val start = items.size
+        val stampDefault = try { prefs.getBoolean("stamp", true) } catch (_: Exception) { true }
+        newItems.forEach { it.stamp = stampDefault }
         items.addAll(newItems)
         empty.visibility = View.GONE
         editor.visibility = View.VISIBLE
@@ -428,6 +440,8 @@ class MainActivity : AppCompatActivity() {
         if (lat.text?.toString()?.toDoubleOrNull() != it.lat) lat.setText(latS)
         if (lng.text?.toString()?.toDoubleOrNull() != it.lng) lng.setText(lngS)
         btnDate.text = Stamp.formatDate(it.date)
+        swStamp.isChecked = it.stamp
+        swMap.visibility = if (it.stamp) View.VISIBLE else View.GONE
         binding = false
 
         status.text = when {
@@ -439,6 +453,7 @@ class MainActivity : AppCompatActivity() {
                 if (it.rotation != 0 || it.straighten != 0f) append(" · rotated")
                 if (it.crop != null) append(" · cropped")
                 if (it.copyNo > 0) append(" · copy ${it.copyNo}")
+                if (!it.stamp) append(" · no stamp, metadata only")
             }
         }
         status.setTextColor(ContextCompat.getColor(this,
@@ -457,7 +472,8 @@ class MainActivity : AppCompatActivity() {
         val it = item() ?: return
         val src = it.preview
         if (src == null) { preview.setImageDrawable(null); return }
-        preview.setImageBitmap(Stamp.render(MetaReader.applyEdits(src, it), it, swMap.isChecked))
+        val edited = MetaReader.applyEdits(src, it)
+        preview.setImageBitmap(if (it.stamp) Stamp.render(edited, it, swMap.isChecked) else edited)
     }
 
     private fun openCrop() {

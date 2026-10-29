@@ -261,6 +261,14 @@
                 </LinearLayout>
 
                 <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/swStamp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:checked="true"
+                    android:text="Add stamp on photo" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/swMap"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

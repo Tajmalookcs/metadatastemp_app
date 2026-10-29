@@ -54,6 +54,8 @@ class PhotoItem(val uri: Uri) {
     var cameraFile: java.io.File? = null
     /** 0 for the original, 1, 2, 3… for copies of the same photo. */
     var copyNo: Int = 0
+    /** false = save the clean photo with updated metadata only. */
+    var stamp: Boolean = true
 
     /** A copy that shares the photo and metadata but has its own edits. */
     fun duplicate(no: Int): PhotoItem = PhotoItem(uri).also { c ->
@@ -68,6 +70,7 @@ class PhotoItem(val uri: Uri) {
         c.rotation = rotation; c.straighten = straighten
         c.cameraFile = cameraFile
         c.copyNo = no
+        c.stamp = stamp
     }
     /** Normalized crop rect (0..1) on the upright image, or null for none. */
     var crop: android.graphics.RectF? = null
@@ -354,10 +357,11 @@ object Saver {
     fun save(ctx: Context, item: PhotoItem, showMap: Boolean): String {
         val decoded = MetaReader.decode(ctx, item, 4096) ?: throw IllegalStateException("Couldn't open ${item.name}")
         val full = MetaReader.applyEdits(decoded, item)
-        val stamped = Stamp.render(full, item, showMap)
+        val stamped = if (item.stamp) Stamp.render(full, item, showMap) else full
         val base = item.name.substringBeforeLast('.')
         val tag = if (item.copyNo > 0) "_copy${item.copyNo}" else ""
-        val outName = "${base}${tag}_stamped_${System.currentTimeMillis() % 100000}.jpg"
+        val kind = if (item.stamp) "stamped" else "meta"
+        val outName = "${base}${tag}_${kind}_${System.currentTimeMillis() % 100000}.jpg"
 
         val tmp = File(ctx.cacheDir, outName)
         FileOutputStream(tmp).use { stamped.compress(Bitmap.CompressFormat.JPEG, 95, it) }
